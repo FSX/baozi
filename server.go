@@ -4,13 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 )
 
 import (
-	"github.com/fatih/color"
 	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/forward"
 	"github.com/vulcand/oxy/roundrobin"
@@ -66,7 +66,7 @@ func ServeHTTP() http.Handler {
 				if url, err := url.Parse(upstream); err == nil {
 					loadbalancer.UpsertServer(url)
 				} else {
-					colorize(color.FgRed, "⇛", err.Error())
+					fmt.Println(err.Error())
 				}
 			}
 			if *EXPOSE_INFO {

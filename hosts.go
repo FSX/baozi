@@ -2,12 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
-)
 
-import (
-	"github.com/fatih/color"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -46,11 +44,11 @@ func WatchChanges() {
 	for {
 		select {
 		case <-watcher.Events:
-			colorize(color.FgYellow, "⇛ There is a change in the hosts file, reloading ...")
+			fmt.Println("There is a change in the hosts file, reloading ...")
 			if err := InitHostsList(); err != nil {
-				colorize(color.FgRed, "⇛", err.Error())
+				fmt.Println(err.Error())
 			} else {
-				colorize(color.FgGreen, "⇛ The hosts file has been reloaded successfully!")
+				fmt.Println("The hosts file has been reloaded successfully!")
 			}
 		}
 	}
