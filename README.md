@@ -4,7 +4,8 @@ baozi is a fork of HTTPSify.
 
 Changes:
 
-- Remove colors from stdout output.
+- Remove colors from stdout.
+- Remove hosts file watcher.
 
 
 HTTPSify <small>v3.1</small>

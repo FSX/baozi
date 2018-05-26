@@ -14,11 +14,6 @@ func main() {
 		return
 	}
 
-	fmt.Println("Watching the hosts file for any change to hot reload it ...")
-	go func() {
-		WatchChanges()
-	}()
-
 	fmt.Println("Running the HTTP server on address (" + *HTTP_ADDR + ") ...")
 	fmt.Println("Running the HTTPS (HTTP/2) server on address (" + *HTTPS_ADDR + ") ...")
 	fmt.Println(InitServer())
