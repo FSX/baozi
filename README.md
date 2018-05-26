@@ -6,6 +6,8 @@ Changes:
 
 - Remove colors from stdout.
 - Remove hosts file watcher.
+- Load all settings from a file.
+- Don't expose proxy information.
 
 
 HTTPSify <small>v3.1</small>
