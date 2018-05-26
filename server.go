@@ -5,63 +5,59 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 )
 
 import (
-	log "github.com/sirupsen/logrus"
 	"github.com/vulcand/oxy/forward"
 	"github.com/vulcand/oxy/roundrobin"
 	"golang.org/x/crypto/acme/autocert"
 )
 
-// Initialize the autocert manager and configure it,
-// also create an instance of the http.Server and link the autocert manager to it.
-func InitServer() error {
+func RunServer(cfg *Config) error {
 	m := autocert.Manager{
-		Cache:  autocert.DirCache(*STORAGE),
+		Cache:  autocert.DirCache(cfg.CertPath),
 		Prompt: autocert.AcceptTOS,
 		HostPolicy: func(ctx context.Context, host string) error {
-			if _, ok := HOSTS[host]; ok {
+			if _, ok := cfg.Hosts[host]; ok {
 				return nil
 			}
 			return errors.New("Unkown host(" + host + ")")
 		},
 	}
-
+	s := &http.Server{
+		Addr:      cfg.HttpsAddr,
+		TLSConfig: &tls.Config{GetCertificate: m.GetCertificate},
+		Handler:   ServeHTTP(cfg),
+	}
 	errchan := make(chan error)
 
-	s := &http.Server{
-		Addr:      *HTTPS_ADDR,
-		TLSConfig: &tls.Config{GetCertificate: m.GetCertificate},
-		Handler:   ServeHTTP(),
-	}
+	go (func(err chan error) {
+		handler := m.HTTPHandler(ServeHTTP(cfg))
+		// TODO
+		// if *AUTOREDIRECT {
+		// 	handler = m.HTTPHandler(nil)
+		// }
+		err <- http.ListenAndServe(cfg.HttpAddr, handler)
+	})(errchan)
 
-	log.SetOutput(ioutil.Discard)
+	go (func(err chan error) {
+		err <- s.ListenAndServeTLS("", "")
+	})(errchan)
 
-	go (func() {
-		handler := m.HTTPHandler(ServeHTTP())
-		if *AUTOREDIRECT {
-			handler = m.HTTPHandler(nil)
-		}
-		errchan <- http.ListenAndServe(*HTTP_ADDR, handler)
-	})()
-
-	go (func() {
-		errchan <- s.ListenAndServeTLS("", "")
-	})()
-
+	// FIXME: This only gets the first error that's in the channel.
+	// In main.go there's no code that checks if there are errors.
+	// Need to make sure both servers exit when one errors out.
 	return <-errchan
 }
 
-// The main server handler
-func ServeHTTP() http.Handler {
+func ServeHTTP(cfg *Config) http.Handler {
 	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-		if upstreams, ok := HOSTS[req.Host]; ok {
-			forwarder, _ := forward.New(forward.PassHostHeader(true))
-			loadbalancer, _ := roundrobin.New(forwarder)
+		if upstreams, ok := cfg.Hosts[req.Host]; ok {
+			forwarder, _ := forward.New(forward.PassHostHeader(true)) // TODO: Handle errors.
+			loadbalancer, _ := roundrobin.New(forwarder)              // TODO: Handle errors.
+
 			for _, upstream := range upstreams {
 				if url, err := url.Parse(upstream); err == nil {
 					loadbalancer.UpsertServer(url)
@@ -69,15 +65,14 @@ func ServeHTTP() http.Handler {
 					fmt.Println(err.Error())
 				}
 			}
-			if *EXPOSE_INFO {
-				res.Header().Set("X-HTTPSIFY-Version", VERSION)
+
+			if cfg.Hsts != "" {
+				res.Header().Set("Strict-Transport-Security", cfg.Hsts)
 			}
-			if *HSTS != "" {
-				res.Header().Set("Strict-Transport-Security", *HSTS)
-			}
+
 			loadbalancer.ServeHTTP(res, req)
-			return
+		} else {
+			http.Error(res, "upstream server not found", http.StatusNotImplemented)
 		}
-		http.Error(res, "The request service couldn't be found here", http.StatusNotImplemented)
 	})
 }
