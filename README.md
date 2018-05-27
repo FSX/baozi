@@ -8,6 +8,9 @@ Changes:
 - Remove hosts file watcher.
 - Load all settings from a file.
 - Don't expose proxy information.
+- Removed all dependencies except autocert.
+- Removed load balancing. I don't need it for now.
+- Added support for exceptions based on path when selecting an upstream server.
 
 
 HTTPSify <small>v3.1</small>

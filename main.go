@@ -1,5 +1,9 @@
 package main
 
+import (
+	"log"
+)
+
 func main() {
-	RunServer(Loadconfig())
+	log.Fatal(RunServer(Loadconfig()))
 }

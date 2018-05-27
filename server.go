@@ -6,44 +6,42 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
-)
+	"strings"
 
-import (
-	"github.com/vulcand/oxy/forward"
-	"github.com/vulcand/oxy/roundrobin"
 	"golang.org/x/crypto/acme/autocert"
 )
 
 func RunServer(cfg *Config) error {
-	m := autocert.Manager{
+	manager := autocert.Manager{
 		Cache:  autocert.DirCache(cfg.CertPath),
 		Prompt: autocert.AcceptTOS,
 		HostPolicy: func(ctx context.Context, host string) error {
-			if _, ok := cfg.Hosts[host]; ok {
+			if _, ok := cfg.Rules[host]; ok {
 				return nil
 			}
 			return errors.New("Unkown host(" + host + ")")
 		},
+		Email: cfg.AdminEmail,
 	}
-	s := &http.Server{
-		Addr:      cfg.HttpsAddr,
-		TLSConfig: &tls.Config{GetCertificate: m.GetCertificate},
+	server := &http.Server{
+		Addr:      cfg.HttpsAddr, // Doesn't work? autocert still listens on 443 anyway.
+		TLSConfig: &tls.Config{GetCertificate: manager.GetCertificate},
 		Handler:   ServeHTTP(cfg),
 	}
 	errchan := make(chan error)
 
 	go (func(err chan error) {
-		handler := m.HTTPHandler(ServeHTTP(cfg))
-		// TODO
-		// if *AUTOREDIRECT {
-		// 	handler = m.HTTPHandler(nil)
-		// }
-		err <- http.ListenAndServe(cfg.HttpAddr, handler)
+		fmt.Printf("DEBUG HTTP server\n")
+		fmt.Println(cfg.HttpAddr)
+		err <- http.ListenAndServe(cfg.HttpAddr, manager.HTTPHandler(nil))
 	})(errchan)
 
 	go (func(err chan error) {
-		err <- s.ListenAndServeTLS("", "")
+		fmt.Printf("DEBUG HTTPS server\n")
+		fmt.Println(cfg.HttpsAddr)
+		err <- server.ListenAndServeTLS("", "")
 	})(errchan)
 
 	// FIXME: This only gets the first error that's in the channel.
@@ -53,26 +51,62 @@ func RunServer(cfg *Config) error {
 }
 
 func ServeHTTP(cfg *Config) http.Handler {
-	return http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
-		if upstreams, ok := cfg.Hosts[req.Host]; ok {
-			forwarder, _ := forward.New(forward.PassHostHeader(true)) // TODO: Handle errors.
-			loadbalancer, _ := roundrobin.New(forwarder)              // TODO: Handle errors.
-
-			for _, upstream := range upstreams {
-				if url, err := url.Parse(upstream); err == nil {
-					loadbalancer.UpsertServer(url)
-				} else {
-					fmt.Println(err.Error())
-				}
-			}
-
-			if cfg.Hsts != "" {
-				res.Header().Set("Strict-Transport-Security", cfg.Hsts)
-			}
-
-			loadbalancer.ServeHTTP(res, req)
-		} else {
-			http.Error(res, "upstream server not found", http.StatusNotImplemented)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rule, ok := cfg.Rules[r.Host]
+		if !ok {
+			upstreamNotAvailable(w)
+			return
 		}
+
+		if !empty(rule.Redirect) {
+			if target, ok := cfg.Rules[rule.Redirect]; ok {
+				http.Redirect(w, r, makeUrl(rule.Redirect, target.TLS), http.StatusMovedPermanently)
+			} else {
+				upstreamNotAvailable(w)
+				return
+			}
+		}
+
+		if r.TLS == nil && rule.TLS {
+			http.Redirect(w, r, makeUrl(rule.Upstream, rule.TLS), http.StatusMovedPermanently)
+			return
+		}
+
+		upstream := rule.Upstream
+
+		for k, v := range rule.Paths {
+			if strings.HasPrefix(r.URL.Path, k) {
+				upstream = v
+				break
+			}
+		}
+
+		origin, _ := url.Parse(upstream)
+		director := func(r *http.Request) {
+			r.Header.Add("X-Forwarded-Host", r.Host)
+			r.Header.Add("X-Origin-Host", origin.Host)
+			r.Header.Set("Connection", "close")
+			r.URL.Scheme = "http"
+			r.URL.Host = origin.Host
+		}
+		proxy := &httputil.ReverseProxy{Director: director}
+
+		if cfg.Hsts != "" {
+			w.Header().Set("Strict-Transport-Security", cfg.Hsts)
+		}
+
+		proxy.ServeHTTP(w, r)
 	})
+}
+
+func makeUrl(host string, tls bool) string {
+	if tls {
+		return fmt.Sprintf("https://%s/", host)
+	} else {
+		return fmt.Sprintf("http://%s/", host)
+	}
+}
+
+func upstreamNotAvailable(w http.ResponseWriter) {
+	http.Error(w, "upstream server not available", http.StatusNotImplemented)
 }
