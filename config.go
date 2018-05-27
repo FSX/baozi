@@ -9,7 +9,7 @@ import (
 
 type Config struct {
 	HttpAddr   string          `json:"http_addr,omitempty"`
-	HttpsAddr  string          `json:"http_addr,omitempty"`
+	HttpsAddr  string          `json:"https_addr,omitempty"`
 	CertPath   string          `json:"cert_path,omitempty"`
 	Hsts       string          `json:"hsts,omitempty"`
 	Verbose    bool            `json:"verbose,omitempty"`

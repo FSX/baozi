@@ -33,14 +33,10 @@ func RunServer(cfg *Config) error {
 	errchan := make(chan error)
 
 	go (func(err chan error) {
-		fmt.Printf("DEBUG HTTP server\n")
-		fmt.Println(cfg.HttpAddr)
 		err <- http.ListenAndServe(cfg.HttpAddr, manager.HTTPHandler(nil))
 	})(errchan)
 
 	go (func(err chan error) {
-		fmt.Printf("DEBUG HTTPS server\n")
-		fmt.Println(cfg.HttpsAddr)
 		err <- server.ListenAndServeTLS("", "")
 	})(errchan)
 
